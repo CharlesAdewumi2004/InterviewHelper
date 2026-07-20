@@ -1,13 +1,14 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { ClientMessage, Debrief, ServerMessage, Turn } from '../../shared/protocol';
+import type { BloombergDebrief, ClientMessage, Debrief, ServerMessage, Turn } from '../../shared/protocol';
 import { SessionStore } from './session.js';
 import { assembleContext } from './context.js';
 import { maybeCompact, streamChat, structuredCall } from './claude.js';
 import { compileAndRun } from './runner.js';
 import { INTAKE_PROMPT, INTAKE_SCHEMA } from './prompts/intake.js';
 import { DEBRIEF_PROMPT, DEBRIEF_SCHEMA } from './prompts/debrief.js';
+import { BLOOMBERG_DEBRIEF_PROMPT, BLOOMBERG_DEBRIEF_SCHEMA } from './prompts/bloombergDebrief.js';
 import type { ServerProblem } from './types.js';
 
 const PORT = Number(process.env.PORT || 3001);
@@ -131,16 +132,33 @@ function handleConnection(socket: WebSocket): void {
         tests: s.tests ? { passed: s.tests.passed, total: s.tests.total } : null,
         durationMinutes: Math.round((Date.now() - s.startedAt) / 60_000),
       };
-      const { data, usage } = await structuredCall<Debrief>({
-        purpose: 'debrief',
-        system: DEBRIEF_PROMPT,
-        userContent: JSON.stringify(payload, null, 2),
-        schema: DEBRIEF_SCHEMA as unknown as Record<string, unknown>,
-      });
-      store.recordUsage(usage);
-      (store.session as unknown as Record<string, unknown>).debrief = data;
-      store.save();
-      send({ type: 'debrief:ready', debrief: data });
+      // A session with any Bloomberg-mode turns gets the Bloomberg scorecard;
+      // otherwise the standard debrief.
+      const isBloomberg =
+        s.persona === 'bloomberg' || s.turns.some((t) => t.persona === 'bloomberg');
+      if (isBloomberg) {
+        const { data, usage } = await structuredCall<BloombergDebrief>({
+          purpose: 'debrief',
+          system: BLOOMBERG_DEBRIEF_PROMPT,
+          userContent: JSON.stringify(payload, null, 2),
+          schema: BLOOMBERG_DEBRIEF_SCHEMA as unknown as Record<string, unknown>,
+        });
+        store.recordUsage(usage);
+        (store.session as unknown as Record<string, unknown>).debrief = data;
+        store.save();
+        send({ type: 'debrief:bloomberg', debrief: data });
+      } else {
+        const { data, usage } = await structuredCall<Debrief>({
+          purpose: 'debrief',
+          system: DEBRIEF_PROMPT,
+          userContent: JSON.stringify(payload, null, 2),
+          schema: DEBRIEF_SCHEMA as unknown as Record<string, unknown>,
+        });
+        store.recordUsage(usage);
+        (store.session as unknown as Record<string, unknown>).debrief = data;
+        store.save();
+        send({ type: 'debrief:ready', debrief: data });
+      }
     } catch (err) {
       send({ type: 'debrief:error', message: errorMessage(err) });
     }

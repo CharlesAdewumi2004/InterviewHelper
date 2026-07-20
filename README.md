@@ -4,7 +4,8 @@ A local, single-user C++ coding environment with a conversational AI that can al
 current code. Built for interview practice — you never paste code into a chat box.
 
 - **LeetCode-style Monaco editor** with C++ config, STL snippets and word-based suggestions.
-- **Two AI personas**: an interviewer who won't hand you answers, and a tutor who will.
+- **Three AI personas**: a generic interviewer who won't hand you answers, a tutor who will,
+  and a **Bloomberg mock interviewer** running the full grad-SWE mock process spec.
 - **Problem intake**: paste rough problem text; it becomes a formatted statement, a starting
   stub, test cases and a generated test harness.
 - **Compile and run** against the tests locally with ASan/UBSan on, results flowing straight
@@ -37,6 +38,27 @@ Open the Vite URL. The API key stays on the server; all model calls go through i
 4. **End session** for a debrief.
 
 Sessions (transcript, edit history, token usage) are saved to `sessions/<id>.json`.
+
+### Bloomberg mock mode
+
+Switch the persona to **Bloomberg** and drive sessions with chat triggers:
+
+| Say this | Get this |
+|---|---|
+| "question practice" + a problem | Single question under full interview conditions, axes A–D feedback |
+| "full interview" | ~60-min phone-screen simulation (intro/resume, two problems, your questions), A–F debrief |
+| "behavioral round" | STAR/EM deep-dive on projects and motivation |
+| "code review round" | Intentionally flawed C++ (in chat) to critique as a PR review |
+| "pause" / "resume" | Suspend the mock for coaching, then continue |
+
+The mode enforces the STACK framework (Scope → Trace → Approach → Code → Kick the tires),
+clarification and narration grading, a calibrated hint ladder with hint-uptake scoring, and a
+blunt evidence-first feedback format. **End session** produces a Bloomberg scorecard: axis
+scores with evidence, biggest interview risk, one rewrite, highest-leverage fix, next drill,
+every hint logged, and an overall hire recommendation.
+
+The standing candidate context (projects to probe, language bar) lives in
+`server/src/prompts/candidate.ts` — edit it as the profile evolves.
 
 ## Notes
 

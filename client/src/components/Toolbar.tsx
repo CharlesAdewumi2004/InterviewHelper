@@ -71,6 +71,7 @@ export default function Toolbar(props: Props) {
         value={props.persona}
         options={[
           { value: 'interviewer', label: 'Interviewer' },
+          { value: 'bloomberg', label: 'Bloomberg' },
           { value: 'tutor', label: 'Tutor' },
         ]}
         onChange={props.onPersona}

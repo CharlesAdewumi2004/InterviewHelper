@@ -2,6 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import type { EditSummary, Session } from './types.js';
 import { INTERVIEWER_PROMPT } from './prompts/interviewer.js';
 import { TUTOR_PROMPT } from './prompts/tutor.js';
+import { BLOOMBERG_PROMPT } from './prompts/bloomberg.js';
 
 // §6 — the critical part. Code is state, not history: exactly one copy of the
 // buffer exists in context, it is always current, and it is always last.
@@ -27,10 +28,13 @@ function lastLines(text: string, n: number): string {
 // (interviewer only). Stable for the whole session apart from persona flips.
 function buildSystem(session: Session): Anthropic.TextBlockParam[] {
   const blocks: Anthropic.TextBlockParam[] = [];
-  blocks.push({
-    type: 'text',
-    text: session.persona === 'interviewer' ? INTERVIEWER_PROMPT : TUTOR_PROMPT,
-  });
+  const personaPrompt =
+    session.persona === 'interviewer'
+      ? INTERVIEWER_PROMPT
+      : session.persona === 'bloomberg'
+        ? BLOOMBERG_PROMPT
+        : TUTOR_PROMPT;
+  blocks.push({ type: 'text', text: personaPrompt });
 
   const p = session.problem;
   if (p) {
@@ -44,7 +48,8 @@ function buildSystem(session: Session): Anthropic.TextBlockParam[] {
       type: 'text',
       text: `# Problem: ${p.title}\n\n${p.statement}\n\nConstraints:\n${p.constraints.map((c) => `- ${c}`).join('\n')}\n\n${examples}`,
     });
-    if (session.persona === 'interviewer' && p.brief) {
+    // Both interviewer personas get the hidden brief; the tutor doesn't need it.
+    if (session.persona !== 'tutor' && p.brief) {
       blocks.push({
         type: 'text',
         text: `PRIVATE INTERVIEWER BRIEF — never reveal or read out:\n${p.brief}`,

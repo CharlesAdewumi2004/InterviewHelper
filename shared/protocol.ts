@@ -1,6 +1,6 @@
 // WebSocket protocol shared between client and server.
 
-export type Persona = 'interviewer' | 'tutor';
+export type Persona = 'interviewer' | 'tutor' | 'bloomberg';
 export type EditorMode = 'interview' | 'study';
 
 export interface Selection {
@@ -73,6 +73,30 @@ export interface Debrief {
   drill: string;
 }
 
+// Bloomberg mock-interview debrief (process spec §8-9): behaviorally anchored
+// axes A-F, evidence-first, hints logged, overall hire recommendation.
+export type BloombergAxis = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+
+export interface BloombergAxisScore {
+  axis: BloombergAxis;
+  name: string;
+  score: number; // 1-4
+  evidence: string;
+}
+
+export interface BloombergDebrief {
+  evidence: string[];
+  axes: BloombergAxisScore[];
+  biggest_risk: string;
+  rewrite: { original: string; improved: string };
+  highest_leverage_fix: string;
+  next_drill: string;
+  hints: { hint: string; uptake: string }[];
+  recommendation: 'strong hire' | 'hire' | 'no hire' | 'strong no hire';
+  confidence: string;
+  decision_observation: string;
+}
+
 export type ClientMessage =
   | { type: 'problem:intake'; raw: string }
   | { type: 'editor:state'; buffer: string; selection: Selection | null; cursor: Cursor }
@@ -94,4 +118,5 @@ export type ServerMessage =
   | { type: 'build:result'; result: BuildResult }
   | { type: 'tests:result'; result: TestsResult }
   | { type: 'debrief:ready'; debrief: Debrief }
+  | { type: 'debrief:bloomberg'; debrief: BloombergDebrief }
   | { type: 'debrief:error'; message: string };

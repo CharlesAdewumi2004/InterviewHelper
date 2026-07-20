@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type {
+  BloombergDebrief,
   BuildResult,
   ClientProblem,
   Debrief,
@@ -16,6 +17,12 @@ import ProblemPane from './components/ProblemPane';
 import Console from './components/Console';
 import Toolbar from './components/Toolbar';
 import DebriefView from './components/DebriefView';
+import BloombergDebriefView from './components/BloombergDebriefView';
+
+type DebriefState =
+  | { kind: 'standard'; data: Debrief }
+  | { kind: 'bloomberg'; data: BloombergDebrief }
+  | null;
 
 export default function App() {
   const [persona, setPersona] = useState<Persona>('interviewer');
@@ -35,7 +42,7 @@ export default function App() {
 
   const [startedAt, setStartedAt] = useState(Date.now());
   const [endingSession, setEndingSession] = useState(false);
-  const [debrief, setDebrief] = useState<Debrief | null>(null);
+  const [debrief, setDebrief] = useState<DebriefState>(null);
 
   const editorApiRef = useRef<EditorApi | null>(null);
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -88,7 +95,11 @@ export default function App() {
         break;
       case 'debrief:ready':
         setEndingSession(false);
-        setDebrief(msg.debrief);
+        setDebrief({ kind: 'standard', data: msg.debrief });
+        break;
+      case 'debrief:bloomberg':
+        setEndingSession(false);
+        setDebrief({ kind: 'bloomberg', data: msg.debrief });
         break;
       case 'debrief:error':
         setEndingSession(false);
@@ -189,7 +200,10 @@ export default function App() {
         </div>
       </div>
 
-      {debrief && <DebriefView debrief={debrief} onClose={() => setDebrief(null)} />}
+      {debrief?.kind === 'standard' && <DebriefView debrief={debrief.data} onClose={() => setDebrief(null)} />}
+      {debrief?.kind === 'bloomberg' && (
+        <BloombergDebriefView debrief={debrief.data} onClose={() => setDebrief(null)} />
+      )}
     </div>
   );
 }

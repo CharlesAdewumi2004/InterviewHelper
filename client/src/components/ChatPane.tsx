@@ -29,7 +29,9 @@ function renderContent(content: string) {
 }
 
 function personaLabel(p: Persona): string {
-  return p === 'interviewer' ? 'Interviewer' : 'Tutor';
+  if (p === 'interviewer') return 'Interviewer';
+  if (p === 'bloomberg') return 'Bloomberg';
+  return 'Tutor';
 }
 
 export default function ChatPane({ turns, streamText, busy, error, persona, inputRef, onSend }: Props) {
