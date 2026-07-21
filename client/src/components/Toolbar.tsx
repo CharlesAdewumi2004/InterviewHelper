@@ -185,7 +185,7 @@ export default memo(function Toolbar(props: Props) {
 
       <button
         onClick={() => props.onVoiceMode(!props.voiceMode)}
-        title="Voice mode: replies are read aloud; hold Ctrl+Space to speak"
+        title="Voice mode: replies are read aloud. Tap Ctrl+Space / F8 to toggle the mic (tap again to send), or hold it push-to-talk style"
         className={
           props.voiceMode
             ? 'rounded border border-blue-600 bg-blue-700 px-2.5 py-1 text-xs font-medium text-white'

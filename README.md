@@ -43,7 +43,9 @@ the frontend. (`.env` is now only needed for the optional `CXX` override.)
 
 1. Paste a rough problem into the left pane and hit **Format problem** — the stub lands in the
    editor.
-2. Write code. **Ctrl/Cmd+Enter** runs; **Ctrl/Cmd+K** focuses the chat.
+2. Write code. **Ctrl/Cmd+Enter** runs; **Ctrl/Cmd+K** focuses the chat. **Ctrl+Space / F8**
+   drives the chat mic: hold to talk (release sends) or tap to toggle it on hands-free (tap
+   again to send). The **Narrate** button separately toggles the ambient think-aloud mic.
 3. Talk to the interviewer at any time — it sees your buffer, selection, cursor, build errors
    and test results automatically. Flip to **Tutor** when you want direct answers.
 4. Sessions **start paused** — setup time (pasting, reading the problem) never counts as

@@ -79,12 +79,16 @@ export default function ChatPane({
   onBargeIn,
 }: Props) {
   const [draft, setDraft] = useState('');
-  const [listening, setListening] = useState<null | 'click' | 'ptt'>(null);
+  // 'ptt' = chord held (release sends); 'toggle' = chord tapped (mic stays
+  // open hands-free, next tap sends); 'click' = Mic button (text lands in the
+  // input for review).
+  const [listening, setListening] = useState<null | 'click' | 'ptt' | 'toggle'>(null);
   const [micError, setMicError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const micRef = useRef<MicSession | null>(null);
-  const listeningRef = useRef<null | 'click' | 'ptt'>(null);
+  const listeningRef = useRef<null | 'click' | 'ptt' | 'toggle'>(null);
   listeningRef.current = listening;
+  const pttDownAtRef = useRef(0);
   // The push-to-talk window listeners are registered once; these refs keep
   // them reading fresh state instead of the closures from mount time (a stale
   // `busy=true` here used to kill Ctrl+Space for the rest of the session).
@@ -154,10 +158,12 @@ export default function ChatPane({
   const startListeningRef = useRef(startListening);
   startListeningRef.current = startListening;
 
-  // Hold Ctrl+Space (or F8) to talk, release to send — bound whenever this
+  // Ctrl+Space (or F8): HOLD to talk, release to send — or TAP to toggle the
+  // mic on hands-free and tap again to stop and send. Bound whenever this
   // browser supports speech input, regardless of the Voice/Narrate toggles.
   // Monaco's manual suggest trigger moves to Ctrl+I (suggestions still pop
   // automatically as you type).
+  const TAP_MS = 350; // released faster than this = a tap, not a hold
   useEffect(() => {
     if (!speechInputSupported) return;
     const isPttChord = (e: KeyboardEvent) => (e.code === 'Space' && e.ctrlKey) || e.code === 'F8';
@@ -165,17 +171,30 @@ export default function ChatPane({
       if (isPttChord(e) && !e.repeat) {
         e.preventDefault();
         e.stopPropagation();
-        startListeningRef.current('ptt');
+        if (listeningRef.current === 'toggle') {
+          stopListening(); // second tap: stop and send
+        } else if (!listeningRef.current) {
+          pttDownAtRef.current = Date.now();
+          startListeningRef.current('ptt');
+        }
       }
     };
     const up = (e: KeyboardEvent) => {
       if (listeningRef.current === 'ptt' && (e.code === 'Space' || e.key === 'Control' || e.code === 'F8')) {
         e.preventDefault();
-        stopListening();
+        if (Date.now() - pttDownAtRef.current < TAP_MS) {
+          // A tap, not a hold: keep the mic open hands-free. The ref updates
+          // immediately — the next keydown may arrive before a re-render.
+          listeningRef.current = 'toggle';
+          setListening('toggle');
+        } else {
+          stopListening();
+        }
       }
     };
     // Alt-tabbing away mid-hold loses the keyup — treat blur as release so
-    // the mic doesn't stay hot in the background.
+    // the mic doesn't stay hot in the background. A deliberate toggle (like
+    // the Mic button's click mode) survives blur.
     const blur = () => {
       if (listeningRef.current === 'ptt') stopListening();
     };
@@ -199,7 +218,8 @@ export default function ChatPane({
           <p className="text-sm text-neutral-500">
             Talk to the {personaLabel(persona).toLowerCase()} — they can already see your code, build status and
             test results. No need to paste anything.
-            {speechInputSupported && ' Hold Ctrl+Space (or F8) to speak to them directly; release to send.'}
+            {speechInputSupported &&
+              ' Hold Ctrl+Space (or F8) to speak — release to send. Or tap it to toggle the mic on hands-free; tap again to send.'}
           </p>
         )}
         <TurnList turns={turns} />
@@ -241,13 +261,15 @@ export default function ChatPane({
               }
             }}
             placeholder={
-              listening
-                ? 'Listening…'
-                : busy
-                  ? 'Waiting for response…'
-                  : speechInputSupported
-                    ? 'Ask a question — or hold Ctrl+Space / F8 to speak'
-                    : 'Ask a question (Enter to send, Shift+Enter for newline)'
+              listening === 'toggle'
+                ? 'Listening — tap Ctrl+Space / F8 again to send'
+                : listening
+                  ? 'Listening…'
+                  : busy
+                    ? 'Waiting for response…'
+                    : speechInputSupported
+                      ? 'Ask a question — or tap/hold Ctrl+Space / F8 to speak'
+                      : 'Ask a question (Enter to send, Shift+Enter for newline)'
             }
             rows={2}
             className={`w-full resize-none rounded border bg-neutral-900 p-2 text-sm outline-none ${
@@ -257,7 +279,13 @@ export default function ChatPane({
           {speechInputSupported && (
             <button
               onClick={() => (listening ? stopListening() : startListening('click'))}
-              title={listening ? 'Stop listening' : 'Speak (transcript lands in the input for review)'}
+              title={
+                listening === 'toggle'
+                  ? 'Stop listening and send'
+                  : listening
+                    ? 'Stop listening'
+                    : 'Speak (transcript lands in the input for review)'
+              }
               className={`rounded px-2.5 py-2 text-base leading-none disabled:opacity-40 ${
                 listening ? 'animate-pulse bg-red-700 hover:bg-red-600' : 'bg-neutral-800 hover:bg-neutral-700'
               }`}
