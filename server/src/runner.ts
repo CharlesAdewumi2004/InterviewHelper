@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { BuildResult, TestFailure, TestsResult } from '../../shared/protocol';
 import type { Session } from './types.js';
-import { BASH, CXX, toolchainEnv } from './toolchain.js';
+import { BASH, CPP_PRELUDE, CXX, PRELUDE_FILE, toolchainEnv } from './toolchain.js';
 
 const COMPILE_TIMEOUT_MS = 10_000;
 const EXEC_TIMEOUT_MS = 5_000;
@@ -167,6 +167,7 @@ export async function compileAndRun(
 ): Promise<{ build: BuildResult; tests: TestsResult | null }> {
   const workDir = path.join(os.tmpdir(), 'practice-ide', session.id);
   fs.mkdirSync(workDir, { recursive: true });
+  fs.writeFileSync(path.join(workDir, PRELUDE_FILE), CPP_PRELUDE);
 
   const problem = session.problem;
   const hasHarness = Boolean(problem && problem.harness && problem.tests.length);
@@ -190,6 +191,10 @@ export async function compileAndRun(
       '-O2',
       '-Wall',
       '-Wextra',
+      // LeetCode semantics: bits/stdc++.h + using namespace std, force-
+      // included so buffer line numbers match diagnostics exactly.
+      '-include',
+      PRELUDE_FILE,
       ...(sanitize ? ['-fsanitize=address,undefined'] : []),
       '-o',
       EXE,

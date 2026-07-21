@@ -4,6 +4,9 @@ A local, single-user C++ coding environment with a conversational AI that can al
 current code. Built for interview practice — you never paste code into a chat box.
 
 - **LeetCode-style Monaco editor** with C++ config, STL snippets and word-based suggestions.
+  True LeetCode build semantics: every standard header is pre-included and `using namespace std`
+  is in effect (force-included prelude, so compiler errors still point at your real line numbers) —
+  solutions need zero boilerplate.
 - **Three AI personas**: a generic interviewer who won't hand you answers, a tutor who will,
   and a **Bloomberg mock interviewer** running the full grad-SWE mock process spec.
 - **Problem intake**: paste rough problem text; it becomes a formatted statement, a starting

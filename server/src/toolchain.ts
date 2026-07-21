@@ -8,6 +8,13 @@ import path from 'node:path';
 
 const WIN = process.platform === 'win32';
 
+// LeetCode semantics: every standard header is available and unqualified std
+// names work, with zero boilerplate in the user's code. Force-included via
+// `-include` (compiler) and fallbackFlags (clangd) so editor line numbers
+// stay 1:1 with diagnostics — nothing is ever prepended to the buffer itself.
+export const CPP_PRELUDE = '#pragma once\n#include <bits/stdc++.h>\nusing namespace std;\n';
+export const PRELUDE_FILE = 'prelude.hpp';
+
 function isFile(p: string): boolean {
   try {
     return fs.statSync(p).isFile();

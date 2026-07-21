@@ -15,9 +15,10 @@ export interface EditorApi {
   setValue: (value: string) => void;
 }
 
-const DEFAULT_BUFFER = `#include <bits/stdc++.h>
-using namespace std;
-
+// Mirrors the server's DEFAULT_BUFFER (session.ts) — the session:ready
+// snapshot overwrites this either way.
+const DEFAULT_BUFFER = `// All standard headers are pre-included and \`using namespace std\` is on
+// (LeetCode-style) — no #includes needed.
 // Paste a rough problem into the left pane to generate a stub and tests,
 // or just write code here and hit Ctrl/Cmd+Enter to compile and run.
 

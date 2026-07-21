@@ -24,9 +24,10 @@ export function activeMs(session: Session, at: number): number {
   return Math.max(0, at - session.startedAt - pausedMsUntil(session, at));
 }
 
-const DEFAULT_BUFFER = `#include <bits/stdc++.h>
-using namespace std;
-
+// LeetCode semantics: the build force-includes <bits/stdc++.h> and
+// `using namespace std;` — buffers need no boilerplate.
+const DEFAULT_BUFFER = `// All standard headers are pre-included and \`using namespace std\` is on
+// (LeetCode-style) — no #includes needed.
 // Paste a rough problem into the left pane to generate a stub and tests,
 // or just write code here and hit Ctrl/Cmd+Enter to compile and run.
 

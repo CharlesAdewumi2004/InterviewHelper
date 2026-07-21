@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { CLANGD, toolchainEnv } from './toolchain.js';
+import { CLANGD, CPP_PRELUDE, PRELUDE_FILE, toolchainEnv } from './toolchain.js';
 
 // One clangd per WebSocket connection, speaking LSP over stdio. The client
 // ships the whole buffer with every request; we own document sync (full-text
@@ -42,12 +42,17 @@ export class ClangdSession {
   private disposed = false;
 
   private readonly uri: string;
+  private readonly preludePath: string;
   private text: string;
   private version = 1;
 
   constructor(initialBuffer: string) {
     const dir = path.join(os.tmpdir(), 'practice-ide', 'lsp');
     fs.mkdirSync(dir, { recursive: true });
+    // Same LeetCode prelude the compiler force-includes — completions must
+    // resolve std symbols in buffers that carry no #include lines.
+    this.preludePath = path.join(dir, PRELUDE_FILE);
+    fs.writeFileSync(this.preludePath, CPP_PRELUDE);
     this.uri = pathToFileURL(path.join(dir, `live-${randomUUID().slice(0, 8)}.cpp`)).href;
     this.text = initialBuffer;
   }
@@ -89,7 +94,7 @@ export class ClangdSession {
           hover: { contentFormat: ['markdown', 'plaintext'] },
         },
       },
-      initializationOptions: { fallbackFlags: ['-std=c++23', '-xc++'] },
+      initializationOptions: { fallbackFlags: ['-std=c++23', '-xc++', '-include', this.preludePath] },
     });
     this.notify('initialized', {});
     this.notify('textDocument/didOpen', {

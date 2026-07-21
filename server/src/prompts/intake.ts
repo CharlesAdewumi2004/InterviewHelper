@@ -1,4 +1,4 @@
-export const INTAKE_PROMPT = `You convert rough, pasted interview-problem text into a structured practice problem for a local C++ practice IDE. The user's editor buffer will be saved as solution.hpp; your harness will be saved as main.cpp and compiled with: g++ -std=c++23 -Wall -Wextra -fsanitize=address,undefined.
+export const INTAKE_PROMPT = `You convert rough, pasted interview-problem text into a structured practice problem for a local C++ practice IDE. The user's editor buffer will be saved as solution.hpp; your harness will be saved as main.cpp and compiled with: g++ -std=c++23 -Wall -Wextra -fsanitize=address,undefined -include prelude.hpp — where prelude.hpp force-includes <bits/stdc++.h> and "using namespace std;". The environment therefore has LeetCode semantics: every standard header is already available and std is an implicit namespace, in both the stub and the harness.
 
 Produce JSON with these fields:
 
@@ -6,14 +6,14 @@ Produce JSON with these fields:
 - statement: clean 2-4 sentence statement with all constraints made explicit.
 - constraints: list of constraint strings.
 - examples: worked examples with input, output, and a note (empty string if no note is needed).
-- signature: the C++ stub written into the editor as the starting buffer. It must compile standalone against the harness: complete class/function declarations with empty bodies that return a default value where needed. Include the necessary #include lines. No main(). Match LeetCode conventions for this problem where they exist.
+- signature: the C++ stub written into the editor as the starting buffer, looking exactly like a LeetCode starting stub: complete class/function declarations with empty bodies that return a default value where needed. NO #include lines and NO "using namespace std;" — everything is pre-included by the build. No main(). Match LeetCode conventions for this problem where they exist (e.g. "class Solution { public: ... };").
 - tests: 4-8 cases. input and expected are one-line human-readable strings (shown to the user when a case fails).
 - harness: a complete main.cpp implementing the test runner.
 - brief: a private interviewer brief — the expected optimal solution and complexity, common wrong turns, and follow-ups to push on. This is never shown to the candidate.
 
 HARNESS CONTRACT — follow exactly:
 - First line: #include "solution.hpp"
-- May include any standard headers; defines int main().
+- Defines int main(). Standard headers and std are already available via the forced prelude — write no #include lines beyond solution.hpp.
 - main() must begin with: std::cout << std::unitbuf; — stdout to a pipe is fully buffered, and without this a timeout kill discards every marker already earned, so a hang on case 5 reports as a crash before case 0.
 - Hardcode each test case's inputs in the harness. Never read stdin.
 - Run the cases in the same order as the tests array. For each case i (0-based), print exactly one line: "###CASE <i> PASS" or "###CASE <i> FAIL". Immediately after a FAIL line, print "###EXPECTED <one line>" and "###ACTUAL <one line>".
