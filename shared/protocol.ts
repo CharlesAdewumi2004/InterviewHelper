@@ -160,6 +160,9 @@ export type ClientMessage =
   // Pause/resume the session: the clock stops, and paused time is excluded
   // from every grading input (duration, timestamps, silence analysis).
   | { type: 'session:pause'; paused: boolean }
+  // Discard the current session and start a fresh one on the same connection
+  // (the old session is persisted to disk if anything happened in it).
+  | { type: 'session:reset' }
   // Semantic autocomplete: clangd runs server-side; the client ships the whole
   // buffer per request (the server owns LSP document sync) and gets the raw
   // LSP result back. line/column are Monaco's 1-based coordinates.

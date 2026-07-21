@@ -40,10 +40,13 @@ the frontend. (`.env` is now only needed for the optional `CXX` override.)
 2. Write code. **Ctrl/Cmd+Enter** runs; **Ctrl/Cmd+K** focuses the chat.
 3. Talk to the interviewer at any time — it sees your buffer, selection, cursor, build errors
    and test results automatically. Flip to **Tutor** when you want direct answers.
-4. **⏸ Pause** freezes the session clock and drops the narration mic; paused time is excluded
-   from every grading input (duration, timestamps, silence analysis), and the persona is told
-   the session is paused so the exchange counts as a break/coaching, not interview performance.
-5. **End session** for a debrief.
+4. Sessions **start paused** — setup time (pasting, reading the problem) never counts as
+   interview time. Hit **▶ Resume** when you're ready; **⏸ Pause** any time after. Paused time
+   is excluded from every grading input (duration, timestamps, silence analysis), the narration
+   mic yields, and the persona is told the session is paused so the exchange counts as a
+   break/coaching, not interview performance.
+5. **End session** for a debrief, or **Reset** to discard the session and start fresh
+   (keeps your persona choice; no grading).
 
 Sessions (transcript, edit history, token usage) are saved to `sessions/<id>.json`.
 

@@ -27,6 +27,7 @@ interface Props {
   onPersona: (p: Persona) => void;
   onRun: () => void;
   onEndSession: () => void;
+  onResetSession: () => void;
   onVoiceMode: (on: boolean) => void;
   onNarration: (on: boolean) => void;
   onPause: () => void;
@@ -236,6 +237,15 @@ export default memo(function Toolbar(props: Props) {
         className="rounded bg-neutral-700 px-3 py-1 text-sm hover:bg-neutral-600 disabled:opacity-40"
       >
         {props.endingSession ? 'Debriefing…' : 'End session'}
+      </button>
+
+      <button
+        onClick={props.onResetSession}
+        disabled={props.endingSession}
+        title="Discard this session and start a fresh one (no grading; the file stays on disk)"
+        className="rounded border border-neutral-700 bg-neutral-900 px-3 py-1 text-sm text-neutral-400 hover:bg-neutral-800 disabled:opacity-40"
+      >
+        Reset
       </button>
     </div>
   );

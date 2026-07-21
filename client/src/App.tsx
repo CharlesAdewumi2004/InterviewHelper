@@ -337,6 +337,20 @@ export default function App() {
     setEndingSession(true);
   }, [send]);
 
+  const handleResetSession = useCallback(() => {
+    if (
+      !window.confirm(
+        'Start a new session? The transcript, problem and clock are discarded without grading (the session file stays on disk). The new session starts paused.',
+      )
+    ) {
+      return;
+    }
+    if (!send({ type: 'session:reset' })) {
+      setChatError('Not connected — cannot reset the session right now.');
+    }
+    // The fresh session:ready that follows resets all client state.
+  }, [send]);
+
   const handleProgress = useCallback(() => setShowProgress(true), []);
 
   // Stable references so the memoized Editor never re-renders during
@@ -371,6 +385,7 @@ export default function App() {
         onPersona={handlePersona}
         onRun={handleRun}
         onEndSession={handleEndSession}
+        onResetSession={handleResetSession}
         onVoiceMode={handleVoiceMode}
         onNarration={handleNarration}
         onPause={handlePause}

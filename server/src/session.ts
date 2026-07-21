@@ -44,9 +44,10 @@ export class SessionStore {
   private lastErrorSignature: string | null = null;
 
   constructor() {
+    const now = Date.now();
     this.session = {
       id: `${new Date().toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}`,
-      startedAt: Date.now(),
+      startedAt: now,
       persona: 'interviewer',
       problem: null,
       buffer: DEFAULT_BUFFER,
@@ -62,7 +63,10 @@ export class SessionStore {
       edits: [],
       narration: [],
       narrationSpans: [],
-      pauseSpans: [],
+      // Sessions begin paused: the clock starts on the first ▶ Resume, so
+      // setup time (pasting a problem, reading it) never counts as interview
+      // time or shows up as a silence gap.
+      pauseSpans: [{ from: now, to: null }],
       narrationSentThrough: 0,
       usage: [],
       compactSummary: null,

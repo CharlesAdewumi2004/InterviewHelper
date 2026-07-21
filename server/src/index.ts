@@ -44,7 +44,7 @@ function handleConnection(socket: WebSocket, request: IncomingMessage): void {
     clearTimeout(held.timer);
     detached.delete(sid as string);
   }
-  const store = held ? held.store : new SessionStore();
+  let store = held ? held.store : new SessionStore();
   const resumed = held !== undefined;
   let chatBusy = false;
   let runBusy = false;
@@ -64,21 +64,26 @@ function handleConnection(socket: WebSocket, request: IncomingMessage): void {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
   };
 
-  const lastPause = store.session.pauseSpans[store.session.pauseSpans.length - 1];
-  const pausedNow = lastPause !== undefined && lastPause.to === null;
-  send({
-    type: 'session:ready',
-    sessionId: store.session.id,
-    persona: store.session.persona,
-    resumed,
-    startedAt: store.session.startedAt,
-    problem: store.session.problem ? toClientProblem(store.session.problem) : null,
-    buffer: store.session.buffer,
-    turns: store.session.turns,
-    paused: pausedNow,
-    pausedMs: store.session.pauseSpans.reduce((s, sp) => s + (sp.to !== null ? sp.to - sp.from : 0), 0),
-    pausedAt: pausedNow ? lastPause.from : null,
-  });
+  // Sent at connect and again after a session:reset swaps the store.
+  const announceSession = (asResumed: boolean) => {
+    const s = store.session;
+    const lastPause = s.pauseSpans[s.pauseSpans.length - 1];
+    const pausedNow = lastPause !== undefined && lastPause.to === null;
+    send({
+      type: 'session:ready',
+      sessionId: s.id,
+      persona: s.persona,
+      resumed: asResumed,
+      startedAt: s.startedAt,
+      problem: s.problem ? toClientProblem(s.problem) : null,
+      buffer: s.buffer,
+      turns: s.turns,
+      paused: pausedNow,
+      pausedMs: s.pauseSpans.reduce((sum, sp) => sum + (sp.to !== null ? sp.to - sp.from : 0), 0),
+      pausedAt: pausedNow ? lastPause.from : null,
+    });
+  };
+  announceSession(resumed);
 
   // Semantic autocomplete: boot clangd eagerly so the expensive first parse
   // of <bits/stdc++.h> happens now, not on the first keystroke.
@@ -91,36 +96,39 @@ function handleConnection(socket: WebSocket, request: IncomingMessage): void {
       return;
     }
     chatBusy = true;
+    // Pin the store: a session:reset mid-turn must not write into the new
+    // session's history.
+    const st = store;
     try {
       // The chat payload carries the authoritative editor state — never trust
       // the debounced copy at the moment the user asks a question.
-      store.updateEditor(msg.buffer, msg.selection, msg.cursor);
-      const latestEdit = store.recordEditBoundary();
+      st.updateEditor(msg.buffer, msg.selection, msg.cursor);
+      const latestEdit = st.recordEditBoundary();
 
       if (!chat.alive) resetChat();
       const fresh = chat.isNew();
-      const turnText = assembleTurn(store.session, msg.content, latestEdit, {
+      const turnText = assembleTurn(st.session, msg.content, latestEdit, {
         voice: msg.voice === true,
         includeHistory: fresh, // replay prior turns only when the runtime restarted
         includeBuffer: fresh || latestEdit !== null, // buffer rides along only when it changed
-        narration: store.takePendingNarration(), // think-aloud since the last turn
+        narration: st.takePendingNarration(), // think-aloud since the last turn
       });
 
-      store.addTurn({ role: 'user', content: msg.content, at: Date.now(), persona: store.session.persona });
+      st.addTurn({ role: 'user', content: msg.content, at: Date.now(), persona: st.session.persona });
 
       const { text, usage } = await chat.send(turnText, (t) => send({ type: 'chat:delta', text: t }));
 
-      const turn: Turn = { role: 'assistant', content: text, at: Date.now(), persona: store.session.persona };
-      store.addTurn(turn);
-      store.recordUsage(usage);
-      store.save();
+      const turn: Turn = { role: 'assistant', content: text, at: Date.now(), persona: st.session.persona };
+      st.addTurn(turn);
+      st.recordUsage(usage);
+      st.save();
       send({ type: 'chat:done', turn });
 
-      maybeCompact(store.session)
+      maybeCompact(st.session)
         .then((compactUsage) => {
           if (compactUsage) {
-            store.recordUsage(compactUsage);
-            store.save();
+            st.recordUsage(compactUsage);
+            st.save();
           }
         })
         .catch((err) => console.error('compaction failed:', err));
@@ -134,14 +142,15 @@ function handleConnection(socket: WebSocket, request: IncomingMessage): void {
   async function handleRun(msg: Extract<ClientMessage, { type: 'run' }>): Promise<void> {
     if (runBusy) return;
     runBusy = true;
+    const st = store;
     try {
-      store.updateEditor(msg.buffer, store.session.selection, store.session.cursor);
+      st.updateEditor(msg.buffer, st.session.selection, st.session.cursor);
       send({ type: 'build:status', status: 'compiling' });
-      const { build, tests } = await compileAndRun(store.session);
-      store.recordBuild(build);
-      if (tests) store.recordTests(tests);
-      store.recordRun(build, tests ?? null);
-      store.save();
+      const { build, tests } = await compileAndRun(st.session);
+      st.recordBuild(build);
+      if (tests) st.recordTests(tests);
+      st.recordRun(build, tests ?? null);
+      st.save();
       send({ type: 'build:result', result: build });
       if (tests) send({ type: 'tests:result', result: tests });
     } catch (err) {
@@ -152,6 +161,7 @@ function handleConnection(socket: WebSocket, request: IncomingMessage): void {
   }
 
   async function handleIntake(msg: Extract<ClientMessage, { type: 'problem:intake' }>): Promise<void> {
+    const st = store;
     try {
       const { data, usage } = await structuredCall<ServerProblem>({
         purpose: 'intake',
@@ -159,9 +169,9 @@ function handleConnection(socket: WebSocket, request: IncomingMessage): void {
         userContent: msg.raw,
         schema: INTAKE_SCHEMA as unknown as Record<string, unknown>,
       });
-      store.setProblem(data);
-      store.recordUsage(usage);
-      store.save();
+      st.setProblem(data);
+      st.recordUsage(usage);
+      st.save();
       resetChat(); // system prompt now carries the problem + hidden brief
       send({ type: 'problem:ready', problem: toClientProblem(data), buffer: data.signature });
     } catch (err) {
@@ -175,8 +185,9 @@ function handleConnection(socket: WebSocket, request: IncomingMessage): void {
     // and race the gradebook write.
     if (endBusy) return;
     endBusy = true;
+    const st = store;
     try {
-      const s = store.session;
+      const s = st.session;
       // All grading timestamps run on the ACTIVE clock — paused time is
       // invisible to the grader, so a break never reads as a gap.
       const minutesIn = (at: number) => `${Math.round(activeMs(s, at) / 60_000)}m`;
@@ -240,14 +251,14 @@ function handleConnection(socket: WebSocket, request: IncomingMessage): void {
         userContent: JSON.stringify(payload, null, 2),
         schema: SCORECARD_SCHEMA as unknown as Record<string, unknown>,
       });
-      store.recordUsage(usage);
-      store.session.debrief = data;
+      st.recordUsage(usage);
+      st.session.debrief = data;
       const grade = recordGrade({
         session: s,
         persona: s.turns.some((t) => t.persona === 'bloomberg') ? 'bloomberg' : s.persona,
         scorecard: data,
       });
-      store.save();
+      st.save();
       send({ type: 'debrief:ready', scorecard: data, grade });
     } catch (err) {
       send({ type: 'debrief:error', message: errorMessage(err) });
@@ -293,6 +304,19 @@ function handleConnection(socket: WebSocket, request: IncomingMessage): void {
         store.setPaused(msg.paused);
         store.save();
         break;
+      case 'session:reset': {
+        // Persist the outgoing session (no-op if nothing happened in it),
+        // swap in a fresh store — keeping the chosen persona — and rebuild
+        // the model runtime on the clean slate. The new session starts
+        // paused, like every session.
+        store.save();
+        const persona = store.session.persona;
+        store = new SessionStore();
+        store.setPersona(persona);
+        resetChat();
+        announceSession(false);
+        break;
+      }
       case 'lsp:request':
         void clangd
           .query(msg.kind, msg.buffer, msg.line, msg.column)
