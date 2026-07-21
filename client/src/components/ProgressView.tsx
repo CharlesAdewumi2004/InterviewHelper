@@ -169,9 +169,18 @@ function AxisSparkline({ points }: { points: number[] }) {
   );
 }
 
+const RANGES = [
+  { key: 'all', label: 'All', days: null },
+  { key: '90d', label: '90d', days: 90 },
+  { key: '30d', label: '30d', days: 30 },
+  { key: '7d', label: '7d', days: 7 },
+] as const;
+type RangeKey = (typeof RANGES)[number]['key'];
+
 export default function ProgressView({ onClose }: Props) {
   const [grades, setGrades] = useState<GradeRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [range, setRange] = useState<RangeKey>('all');
 
   useEffect(() => {
     fetch('/api/progress')
@@ -180,11 +189,32 @@ export default function ProgressView({ onClose }: Props) {
       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
+  // Remove a grade from the gradebook (the session JSON on disk is kept).
+  const handleDelete = async (sessionId: string) => {
+    if (!window.confirm('Delete this graded session from the gradebook? The session JSON on disk is kept.')) return;
+    try {
+      const r = await fetch(`/api/progress/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      setGrades((g) => (g ? g.filter((x) => x.sessionId !== sessionId) : g));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  // The selected time window drives everything below — stats, charts, table.
+  const filtered = useMemo(() => {
+    if (!grades) return null;
+    const days = RANGES.find((r) => r.key === range)?.days ?? null;
+    if (days === null) return grades;
+    const cutoff = Date.now() - days * 24 * 60 * 60_000;
+    return grades.filter((g) => g.gradedAt >= cutoff);
+  }, [grades, range]);
+
   // Per-axis series across sessions (only sessions that scored the axis).
   const axisSeries = useMemo(() => {
-    if (!grades) return [];
+    if (!filtered) return [];
     const byKey = new Map<string, { label: string; points: number[] }>();
-    for (const g of grades) {
+    for (const g of filtered) {
       for (const a of g.axes) {
         const entry = byKey.get(a.axis) ?? { label: `${a.axis} — ${a.name}`, points: [] };
         entry.points.push(a.score);
@@ -192,9 +222,10 @@ export default function ProgressView({ onClose }: Props) {
       }
     }
     return [...byKey.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, v]) => ({ key, ...v }));
-  }, [grades]);
+  }, [filtered]);
 
   const derived = useMemo(() => {
+    const grades = filtered;
     if (!grades || grades.length === 0) return null;
     const latest = grades[grades.length - 1];
     const prev = grades.length > 1 ? grades[grades.length - 2] : null;
@@ -234,20 +265,44 @@ export default function ProgressView({ onClose }: Props) {
     const clarified = grades.filter((g) => g.clarificationHits !== null);
     const clarLatest = clarified.length ? clarified[clarified.length - 1].clarificationHits : null;
 
-    return { latest, prev, drill, streak, hintLatest, hintPrev, clarLatest };
-  }, [grades, axisSeries]);
+    // Pace over the window: average active session time, and average time to
+    // the first all-green run (sessions that got there).
+    const avg = (xs: number[]) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 10) / 10 : null);
+    const avgDuration = avg(grades.map((g) => g.durationMin));
+    const greens = grades.map((g) => g.timeToGreenMin).filter((v): v is number => v !== null);
+    const avgGreen = avg(greens);
+
+    return { latest, prev, drill, streak, hintLatest, hintPrev, clarLatest, avgDuration, avgGreen, greenCount: greens.length };
+  }, [filtered, axisSeries]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
       <div className="max-h-full w-full max-w-3xl overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-900 p-6">
         <div className="mb-4 flex items-start justify-between">
-          <h2 className="text-lg font-semibold text-neutral-100">Progress</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-neutral-100">Progress</h2>
+            <div className="flex overflow-hidden rounded border border-neutral-700 text-xs">
+              {RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => setRange(r.key)}
+                  className={
+                    r.key === range
+                      ? 'bg-blue-700 px-2.5 py-1 font-medium text-white'
+                      : 'bg-neutral-900 px-2.5 py-1 text-neutral-400 hover:bg-neutral-800'
+                  }
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <button onClick={onClose} className="rounded bg-neutral-800 px-3 py-1 text-sm hover:bg-neutral-700">
             Close
           </button>
         </div>
 
-        {error && <div className="rounded bg-red-900/40 px-3 py-2 text-sm text-red-300">Failed to load: {error}</div>}
+        {error && <div className="mb-3 rounded bg-red-900/40 px-3 py-2 text-sm text-red-300">{error}</div>}
         {!error && grades === null && <p className="text-sm text-neutral-500">Loading…</p>}
         {grades !== null && grades.length === 0 && (
           <p className="text-sm text-neutral-500">
@@ -255,11 +310,20 @@ export default function ProgressView({ onClose }: Props) {
             scorecard records a grade here automatically.
           </p>
         )}
+        {grades !== null && grades.length > 0 && filtered !== null && filtered.length === 0 && (
+          <p className="text-sm text-neutral-500">
+            No graded sessions in this window — {grades.length} in total. Widen the range above.
+          </p>
+        )}
 
-        {grades !== null && grades.length > 0 && derived && (
+        {filtered !== null && filtered.length > 0 && derived && (
           <>
             <div className="mb-5 grid grid-cols-3 gap-2">
-              <StatTile label="Sessions graded" value={String(grades.length)} />
+              <StatTile
+                label="Sessions graded"
+                value={String(filtered.length)}
+                sub={range !== 'all' && grades !== null ? `of ${grades.length} total` : undefined}
+              />
               <StatTile
                 label="Latest"
                 value={`${derived.latest.weighted.toFixed(2)} · ${derived.latest.recommendation}`}
@@ -295,12 +359,21 @@ export default function ProgressView({ onClose }: Props) {
                 value={derived.clarLatest !== null ? `${derived.clarLatest}/8` : '—'}
                 sub="unprompted · target ≥ 6/8"
               />
+              <StatTile
+                label="Pace (avg over window)"
+                value={derived.avgDuration !== null ? `${derived.avgDuration}m` : '—'}
+                sub={
+                  derived.avgGreen !== null
+                    ? `tests green at ${derived.avgGreen}m (${derived.greenCount} session${derived.greenCount === 1 ? '' : 's'})`
+                    : 'no all-green runs in window'
+                }
+              />
             </div>
 
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
               Weighted score over sessions
             </h3>
-            <TrendLine grades={grades} />
+            <TrendLine grades={filtered} />
 
             <h3 className="mb-2 mt-5 text-xs font-semibold uppercase tracking-wide text-neutral-500">
               Axis trendlines
@@ -334,13 +407,20 @@ export default function ProgressView({ onClose }: Props) {
                     <th className="py-1 pr-2 font-medium">Mode</th>
                     <th className="py-1 pr-2 text-right font-medium">Score</th>
                     <th className="py-1 pr-2 font-medium">Recommendation</th>
+                    <th className="py-1 pr-2 text-right font-medium" title="Active session time (pauses excluded)">
+                      Time
+                    </th>
+                    <th className="py-1 pr-2 text-right font-medium" title="First run with all tests passing">
+                      Green
+                    </th>
                     <th className="py-1 pr-2 text-right font-medium">Hints</th>
                     <th className="py-1 pr-2 text-right font-medium">Clarif.</th>
-                    <th className="py-1 text-right font-medium">Tests</th>
+                    <th className="py-1 pr-2 text-right font-medium">Tests</th>
+                    <th className="py-1" />
                   </tr>
                 </thead>
                 <tbody className="tabular-nums">
-                  {[...grades].reverse().map((g) => (
+                  {[...filtered].reverse().map((g) => (
                     <tr key={g.sessionId} className="border-t border-neutral-800 text-neutral-300">
                       <td className="whitespace-nowrap py-1 pr-2">{fmtDate(g.gradedAt)}</td>
                       <td className="max-w-[160px] truncate py-1 pr-2">{g.problemTitle ?? '—'}</td>
@@ -354,12 +434,23 @@ export default function ProgressView({ onClose }: Props) {
                           </span>
                         )}
                       </td>
+                      <td className="py-1 pr-2 text-right">{g.durationMin}m</td>
+                      <td className="py-1 pr-2 text-right">{g.timeToGreenMin !== null ? `${g.timeToGreenMin}m` : '—'}</td>
                       <td className="py-1 pr-2 text-right">{g.hintAvgLevel !== null ? `L${g.hintAvgLevel}` : '—'}</td>
                       <td className="py-1 pr-2 text-right">
                         {g.clarificationHits !== null ? `${g.clarificationHits}/8` : '—'}
                       </td>
-                      <td className="py-1 text-right">
+                      <td className="py-1 pr-2 text-right">
                         {g.testsTotal !== null ? `${g.testsPassed}/${g.testsTotal}` : '—'}
+                      </td>
+                      <td className="py-1 text-right">
+                        <button
+                          onClick={() => void handleDelete(g.sessionId)}
+                          title="Delete this grade from the gradebook (session JSON on disk is kept)"
+                          className="rounded px-1.5 py-0.5 text-neutral-600 hover:bg-red-900/40 hover:text-red-300"
+                        >
+                          ✕
+                        </button>
                       </td>
                     </tr>
                   ))}

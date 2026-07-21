@@ -17,7 +17,10 @@ current code. Built for interview practice — you never paste code into a chat 
   behaviorally anchored axes (evidence-first, 1-4), with the weighted average, decision gates
   and hire recommendation computed deterministically server-side. Grades persist to
   `sessions/gradebook.db` (SQLite, no setup), and the **📈 Progress** view tracks axis
-  trendlines, hint dependency, clarification hit rate and the readiness bar across sessions.
+  trendlines, hint dependency, clarification hit rate, pace (session time and time-to-green)
+  and the readiness bar across sessions — filterable by time window (7/30/90 days), with
+  per-row delete for scrapping botched or test grades (the db is plain SQLite if you ever
+  want to edit it directly with any SQLite tool).
 
 ## Requirements
 

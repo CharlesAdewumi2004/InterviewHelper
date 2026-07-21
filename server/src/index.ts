@@ -7,7 +7,7 @@ import { activeMs, pausedMsUntil, SessionStore } from './session.js';
 import { assembleTurn, buildSystemPrompt } from './context.js';
 import { ChatSession, maybeCompact, structuredCall } from './claude.js';
 import { ClangdSession } from './clangd.js';
-import { listGrades, recordGrade } from './gradebook.js';
+import { deleteGrade, listGrades, recordGrade } from './gradebook.js';
 import { compileAndRun } from './runner.js';
 import { INTAKE_PROMPT, INTAKE_SCHEMA } from './prompts/intake.js';
 import { SCORECARD_PROMPT, SCORECARD_SCHEMA } from './prompts/scorecard.js';
@@ -350,6 +350,14 @@ const fastify = Fastify({ logger: false });
 fastify.get('/health', async () => ({ ok: true }));
 // Gradebook, oldest-first — powers the Progress view.
 fastify.get('/api/progress', async () => ({ grades: listGrades() }));
+// Gradebook row removal (the session JSON on disk is kept). The db is plain
+// SQLite at sessions/gradebook.db for anything beyond delete.
+fastify.delete('/api/progress/:sessionId', async (request, reply) => {
+  const { sessionId } = request.params as { sessionId: string };
+  const deleted = deleteGrade(sessionId);
+  if (!deleted) reply.code(404);
+  return { deleted };
+});
 
 await fastify.listen({ port: PORT, host: '127.0.0.1' });
 const wss = new WebSocketServer({ server: fastify.server, path: '/ws' });

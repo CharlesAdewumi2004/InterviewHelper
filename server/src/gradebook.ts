@@ -228,6 +228,13 @@ export function recordGrade(opts: {
   return grade;
 }
 
+// Remove a graded session from the gradebook (the session JSON on disk is
+// untouched). Ending that session again would simply re-grade it.
+export function deleteGrade(sessionId: string): boolean {
+  const result = open().prepare('DELETE FROM grades WHERE session_id = ?').run(sessionId);
+  return Number(result.changes) > 0;
+}
+
 export function listGrades(): GradeRecord[] {
   const rows = open().prepare('SELECT * FROM grades ORDER BY graded_at ASC').all() as Record<
     string,
