@@ -1,0 +1,333 @@
+import 'dotenv/config';
+import Fastify from 'fastify';
+import type { IncomingMessage } from 'node:http';
+import { WebSocketServer, type WebSocket } from 'ws';
+import type { ClientMessage, ClientProblem, Scorecard, ServerMessage, Turn } from '../../shared/protocol';
+import { activeMs, pausedMsUntil, SessionStore } from './session.js';
+import { assembleTurn, buildSystemPrompt } from './context.js';
+import { ChatSession, maybeCompact, structuredCall } from './claude.js';
+import { ClangdSession } from './clangd.js';
+import { listGrades, recordGrade } from './gradebook.js';
+import { compileAndRun } from './runner.js';
+import { INTAKE_PROMPT, INTAKE_SCHEMA } from './prompts/intake.js';
+import { SCORECARD_PROMPT, SCORECARD_SCHEMA } from './prompts/scorecard.js';
+import type { ServerProblem } from './types.js';
+
+const PORT = Number(process.env.PORT || 3001);
+
+// Model calls run through the Claude Agent SDK using this machine's Claude
+// Code login (Pro/Max subscription) — no API key involved. See claude.ts.
+console.log('Model access: Claude Agent SDK via your Claude Code login (if calls fail with auth errors, run `claude` then `/login`).');
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+// The client never sees the hidden brief, tests or harness (§15) — strip in
+// one place for intake and session-resume alike.
+function toClientProblem(p: ServerProblem): ClientProblem {
+  const { brief: _brief, tests: _tests, harness: _harness, ...clientProblem } = p;
+  return clientProblem;
+}
+
+// Sessions survive disconnects: on close the store is parked here and a
+// reconnect (or page refresh) presenting the same sid re-attaches it — a
+// network blip no longer wipes a 40-minute interview. The model runtime is
+// rebuilt lazily; buildHistory replays the conversation into it.
+const DETACHED_TTL_MS = 60 * 60_000;
+const detached = new Map<string, { store: SessionStore; timer: NodeJS.Timeout }>();
+
+function handleConnection(socket: WebSocket, request: IncomingMessage): void {
+  const sid = new URL(request.url ?? '/', 'http://localhost').searchParams.get('sid');
+  const held = sid ? detached.get(sid) : undefined;
+  if (held) {
+    clearTimeout(held.timer);
+    detached.delete(sid as string);
+  }
+  const store = held ? held.store : new SessionStore();
+  const resumed = held !== undefined;
+  let chatBusy = false;
+  let runBusy = false;
+  let endBusy = false;
+
+  // Persistent chat runtime, pre-warmed at connect so the first message skips
+  // process-spawn latency. Restarted whenever the system prompt must change
+  // (persona switch, new problem) or the runtime dies — a fresh session's
+  // first turn replays the conversation history, so nothing is lost.
+  let chat = new ChatSession(buildSystemPrompt(store.session));
+  const resetChat = () => {
+    chat.dispose();
+    chat = new ChatSession(buildSystemPrompt(store.session));
+  };
+
+  const send = (msg: ServerMessage) => {
+    if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(msg));
+  };
+
+  const lastPause = store.session.pauseSpans[store.session.pauseSpans.length - 1];
+  const pausedNow = lastPause !== undefined && lastPause.to === null;
+  send({
+    type: 'session:ready',
+    sessionId: store.session.id,
+    persona: store.session.persona,
+    resumed,
+    startedAt: store.session.startedAt,
+    problem: store.session.problem ? toClientProblem(store.session.problem) : null,
+    buffer: store.session.buffer,
+    turns: store.session.turns,
+    paused: pausedNow,
+    pausedMs: store.session.pauseSpans.reduce((s, sp) => s + (sp.to !== null ? sp.to - sp.from : 0), 0),
+    pausedAt: pausedNow ? lastPause.from : null,
+  });
+
+  // Semantic autocomplete: boot clangd eagerly so the expensive first parse
+  // of <bits/stdc++.h> happens now, not on the first keystroke.
+  const clangd = new ClangdSession(store.session.buffer);
+  void clangd.ready().then((available) => send({ type: 'lsp:status', available }));
+
+  async function handleChat(msg: Extract<ClientMessage, { type: 'chat:send' }>): Promise<void> {
+    if (chatBusy) {
+      send({ type: 'chat:error', message: 'Still responding to the previous message.' });
+      return;
+    }
+    chatBusy = true;
+    try {
+      // The chat payload carries the authoritative editor state — never trust
+      // the debounced copy at the moment the user asks a question.
+      store.updateEditor(msg.buffer, msg.selection, msg.cursor);
+      const latestEdit = store.recordEditBoundary();
+
+      if (!chat.alive) resetChat();
+      const fresh = chat.isNew();
+      const turnText = assembleTurn(store.session, msg.content, latestEdit, {
+        voice: msg.voice === true,
+        includeHistory: fresh, // replay prior turns only when the runtime restarted
+        includeBuffer: fresh || latestEdit !== null, // buffer rides along only when it changed
+        narration: store.takePendingNarration(), // think-aloud since the last turn
+      });
+
+      store.addTurn({ role: 'user', content: msg.content, at: Date.now(), persona: store.session.persona });
+
+      const { text, usage } = await chat.send(turnText, (t) => send({ type: 'chat:delta', text: t }));
+
+      const turn: Turn = { role: 'assistant', content: text, at: Date.now(), persona: store.session.persona };
+      store.addTurn(turn);
+      store.recordUsage(usage);
+      store.save();
+      send({ type: 'chat:done', turn });
+
+      maybeCompact(store.session)
+        .then((compactUsage) => {
+          if (compactUsage) {
+            store.recordUsage(compactUsage);
+            store.save();
+          }
+        })
+        .catch((err) => console.error('compaction failed:', err));
+    } catch (err) {
+      send({ type: 'chat:error', message: errorMessage(err) });
+    } finally {
+      chatBusy = false;
+    }
+  }
+
+  async function handleRun(msg: Extract<ClientMessage, { type: 'run' }>): Promise<void> {
+    if (runBusy) return;
+    runBusy = true;
+    try {
+      store.updateEditor(msg.buffer, store.session.selection, store.session.cursor);
+      send({ type: 'build:status', status: 'compiling' });
+      const { build, tests } = await compileAndRun(store.session);
+      store.recordBuild(build);
+      if (tests) store.recordTests(tests);
+      store.recordRun(build, tests ?? null);
+      store.save();
+      send({ type: 'build:result', result: build });
+      if (tests) send({ type: 'tests:result', result: tests });
+    } catch (err) {
+      send({ type: 'build:result', result: { status: 'error', stderr: errorMessage(err), stdout: '' } });
+    } finally {
+      runBusy = false;
+    }
+  }
+
+  async function handleIntake(msg: Extract<ClientMessage, { type: 'problem:intake' }>): Promise<void> {
+    try {
+      const { data, usage } = await structuredCall<ServerProblem>({
+        purpose: 'intake',
+        system: INTAKE_PROMPT,
+        userContent: msg.raw,
+        schema: INTAKE_SCHEMA as unknown as Record<string, unknown>,
+      });
+      store.setProblem(data);
+      store.recordUsage(usage);
+      store.save();
+      resetChat(); // system prompt now carries the problem + hidden brief
+      send({ type: 'problem:ready', problem: toClientProblem(data), buffer: data.signature });
+    } catch (err) {
+      send({ type: 'problem:error', message: errorMessage(err) });
+    }
+  }
+
+  async function handleEnd(): Promise<void> {
+    // The debrief is the most expensive call in the app (Opus over the full
+    // transcript) — a second session:end while one is running would double it
+    // and race the gradebook write.
+    if (endBusy) return;
+    endBusy = true;
+    try {
+      const s = store.session;
+      // All grading timestamps run on the ACTIVE clock — paused time is
+      // invisible to the grader, so a break never reads as a gap.
+      const minutesIn = (at: number) => `${Math.round(activeMs(s, at) / 60_000)}m`;
+      // mm:ss for narration — Axis D reasons about >30s gaps, so whole
+      // minutes are too coarse there.
+      const clockIn = (at: number) => {
+        const sec = Math.round(activeMs(s, at) / 1000);
+        return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+      };
+      const now = Date.now();
+      const sessionActiveMs = activeMs(s, now);
+      const micOnMs = s.narrationSpans.reduce((sum, sp) => sum + ((sp.to ?? now) - sp.from), 0);
+      const payload = {
+        problem: s.problem
+          ? { title: s.problem.title, statement: s.problem.statement, brief: s.problem.brief }
+          : null,
+        transcript: s.turns.map((t) => ({
+          at: minutesIn(t.at),
+          role: t.role,
+          persona: t.persona,
+          content: t.content,
+        })),
+        edits: s.edits.map((e) => e.summary),
+        // Ambient think-aloud channel: what the candidate said out loud while
+        // coding, and when the mic was actually on — so silence is only ever
+        // judged where speech could have been captured.
+        narrationChannel: {
+          enabled: s.narrationSpans.length > 0,
+          micOnSpans: s.narrationSpans.map((sp) => ({
+            from: clockIn(sp.from),
+            to: sp.to === null ? 'session end' : clockIn(sp.to),
+          })),
+          coveragePctOfSession: sessionActiveMs > 0 ? Math.min(100, Math.round((micOnMs / sessionActiveMs) * 100)) : 0,
+        },
+        // Sanctioned breaks: the candidate paused the clock. Timestamps above
+        // already exclude this time entirely.
+        pauses: {
+          count: s.pauseSpans.length,
+          totalPausedMinutes: Math.round((pausedMsUntil(s, now) / 60_000) * 10) / 10,
+        },
+        narration: s.narration.map((n) => ({ at: clockIn(n.at), text: n.text })),
+        finalBuffer: s.buffer,
+        build: s.build.status,
+        tests: s.tests ? { passed: s.tests.passed, total: s.tests.total } : null,
+        // The journey, not just the destination: every compile/run with its
+        // outcome, so the grader can weigh trajectory (failed builds, when
+        // tests first went green) as evidence.
+        runHistory: s.runs.map((r) => ({
+          at: minutesIn(r.at),
+          build: r.build,
+          tests: r.total !== null ? `${r.passed}/${r.total}` : null,
+        })),
+        durationMinutes: Math.round(sessionActiveMs / 60_000),
+      };
+      // One grading system for every persona (interview-grading-system.md).
+      // The model scores axes with evidence; recordGrade applies the §5
+      // decision math (weights, band, gates) and persists to the gradebook.
+      const { data, usage } = await structuredCall<Scorecard>({
+        purpose: 'debrief',
+        system: SCORECARD_PROMPT,
+        userContent: JSON.stringify(payload, null, 2),
+        schema: SCORECARD_SCHEMA as unknown as Record<string, unknown>,
+      });
+      store.recordUsage(usage);
+      store.session.debrief = data;
+      const grade = recordGrade({
+        session: s,
+        persona: s.turns.some((t) => t.persona === 'bloomberg') ? 'bloomberg' : s.persona,
+        scorecard: data,
+      });
+      store.save();
+      send({ type: 'debrief:ready', scorecard: data, grade });
+    } catch (err) {
+      send({ type: 'debrief:error', message: errorMessage(err) });
+    } finally {
+      endBusy = false;
+    }
+  }
+
+  socket.on('message', (raw) => {
+    let msg: ClientMessage;
+    try {
+      msg = JSON.parse(String(raw)) as ClientMessage;
+    } catch {
+      return;
+    }
+    switch (msg.type) {
+      case 'editor:state':
+        store.updateEditor(msg.buffer, msg.selection, msg.cursor);
+        break;
+      case 'chat:send':
+        void handleChat(msg);
+        break;
+      case 'run':
+        void handleRun(msg);
+        break;
+      case 'problem:intake':
+        void handleIntake(msg);
+        break;
+      case 'persona:set':
+        store.setPersona(msg.persona);
+        store.save();
+        resetChat(); // system prompt now carries the new persona
+        break;
+      case 'narration:segment':
+        // Context + grading evidence only — never triggers a model call.
+        store.addNarration(msg.text);
+        break;
+      case 'narration:state':
+        store.setNarrationState(msg.on);
+        store.save();
+        break;
+      case 'session:pause':
+        store.setPaused(msg.paused);
+        store.save();
+        break;
+      case 'lsp:request':
+        void clangd
+          .query(msg.kind, msg.buffer, msg.line, msg.column)
+          .then((result) => send({ type: 'lsp:result', id: msg.id, result }))
+          .catch(() => send({ type: 'lsp:result', id: msg.id, result: null }));
+        break;
+      case 'session:end':
+        void handleEnd();
+        break;
+    }
+  });
+
+  socket.on('close', () => {
+    chat.dispose();
+    clangd.dispose();
+    store.save();
+    // Park the session for resume instead of discarding it.
+    const id = store.session.id;
+    // Paranoia (same id parked twice): kill the old timer, or it would fire
+    // later and evict the entry we're about to store.
+    const stale = detached.get(id);
+    if (stale) clearTimeout(stale.timer);
+    detached.set(id, {
+      store,
+      timer: setTimeout(() => detached.delete(id), DETACHED_TTL_MS),
+    });
+  });
+}
+
+const fastify = Fastify({ logger: false });
+fastify.get('/health', async () => ({ ok: true }));
+// Gradebook, oldest-first — powers the Progress view.
+fastify.get('/api/progress', async () => ({ grades: listGrades() }));
+
+await fastify.listen({ port: PORT, host: '127.0.0.1' });
+const wss = new WebSocketServer({ server: fastify.server, path: '/ws' });
+wss.on('connection', handleConnection);
+console.log(`practice-ide server listening on http://127.0.0.1:${PORT} (ws at /ws)`);

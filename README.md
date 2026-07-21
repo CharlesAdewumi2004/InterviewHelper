@@ -1,0 +1,87 @@
+# Practice IDE
+
+A local, single-user C++ coding environment with a conversational AI that can always see the
+current code. Built for interview practice — you never paste code into a chat box.
+
+- **LeetCode-style Monaco editor** with C++ config, STL snippets and word-based suggestions.
+- **Three AI personas**: a generic interviewer who won't hand you answers, a tutor who will,
+  and a **Bloomberg mock interviewer** running the full grad-SWE mock process spec.
+- **Problem intake**: paste rough problem text; it becomes a formatted statement, a starting
+  stub, test cases and a generated test harness.
+- **Compile and run** against the tests locally with ASan/UBSan on, results flowing straight
+  into the AI's context — hit run, see three failures, and just type "why is that failing?".
+- **Formal grading**: every ended session is scored against `interview-grading-system.md` —
+  behaviorally anchored axes (evidence-first, 1-4), with the weighted average, decision gates
+  and hire recommendation computed deterministically server-side. Grades persist to
+  `sessions/gradebook.db` (SQLite, no setup), and the **📈 Progress** view tracks axis
+  trendlines, hint dependency, clarification hit rate and the readiness bar across sessions.
+
+## Requirements
+
+- Node 20+
+- `g++` (or `clang++` — set `CXX=clang++` in `.env`) supporting `-std=c++23` and sanitizers
+- A Claude Pro/Max subscription, logged in via Claude Code on this machine (`claude`, then `/login`)
+
+## Setup
+
+```sh
+npm install
+npm run dev            # server on :3001, client on the Vite port it prints
+```
+
+Open the Vite URL. Model calls run through the Claude Agent SDK using your
+Claude Code subscription login — no API key, and nothing model-related reaches
+the frontend. (`.env` is now only needed for the optional `CXX` override.)
+
+## Usage
+
+1. Paste a rough problem into the left pane and hit **Format problem** — the stub lands in the
+   editor.
+2. Write code. **Ctrl/Cmd+Enter** runs; **Ctrl/Cmd+K** focuses the chat.
+3. Talk to the interviewer at any time — it sees your buffer, selection, cursor, build errors
+   and test results automatically. Flip to **Tutor** when you want direct answers.
+4. **⏸ Pause** freezes the session clock and drops the narration mic; paused time is excluded
+   from every grading input (duration, timestamps, silence analysis), and the persona is told
+   the session is paused so the exchange counts as a break/coaching, not interview performance.
+5. **End session** for a debrief.
+
+Sessions (transcript, edit history, token usage) are saved to `sessions/<id>.json`.
+
+### Bloomberg mock mode
+
+Switch the persona to **Bloomberg** and drive sessions with chat triggers:
+
+| Say this | Get this |
+|---|---|
+| "question practice" + a problem | Single question under full interview conditions, axes A–D feedback |
+| "full interview" | ~60-min phone-screen simulation (intro/resume, two problems, your questions), A–F debrief |
+| "behavioral round" | STAR/EM deep-dive on projects and motivation |
+| "code review round" | Intentionally flawed C++ (in chat) to critique as a PR review |
+| "pause" / "resume" | Suspend the mock for coaching, then continue |
+
+The mode enforces the STACK framework (Scope → Trace → Approach → Code → Kick the tires),
+clarification and narration grading, a calibrated hint ladder with hint-uptake scoring, and a
+blunt evidence-first feedback format. **End session** produces a Bloomberg scorecard: axis
+scores with evidence, biggest interview risk, one rewrite, highest-leverage fix, next drill,
+every hint logged, and an overall hire recommendation.
+
+The standing candidate context (projects to probe, language bar) lives in
+`server/src/prompts/candidate.ts` — edit it as the profile evolves.
+
+## Notes
+
+- The interviewer's hidden per-problem brief never reaches the browser — it is stripped on the
+  server before `problem:ready` is sent.
+- Execution runs under ASan + UBSan with `hard_rss_limit_mb=512`, a 5s wall clock, and a file
+  size ulimit. Leak detection is off to match LeetCode semantics.
+- Models: Claude Sonnet 5 for conversation, Claude Opus 4.8 for problem intake and the debrief
+  (falls back to Sonnet automatically if the plan doesn't include Opus), Claude Haiku 4.5 for
+  history compaction on long sessions. Usage draws from the subscription's rate windows, not
+  pay-per-token billing.
+- Chat runs on a **persistent Claude runtime per connection** (pre-warmed at connect,
+  restarted on persona/problem changes with history replayed) — no per-message process
+  spawn, and context stays cached across turns. Conversational turns run at medium effort;
+  intake/scorecard at high; compaction at low.
+- A dropped WebSocket reconnects into a **fresh** session (v1 limitation).
+- The editor runs under interview conditions (word-based suggestions only). A study mode with
+  clangd IntelliSense is planned for phase 3 and will return as a toggle when it's wired up.

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+sessions/*.json
+sessions/gradebook.db
+*.log
+.claude/settings.local.json

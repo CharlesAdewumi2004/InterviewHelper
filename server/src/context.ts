@@ -1,0 +1,190 @@
+import type { EditSummary, NarrationSegment, Session } from './types.js';
+import { activeMs } from './session.js';
+import { INTERVIEWER_PROMPT } from './prompts/interviewer.js';
+import { TUTOR_PROMPT } from './prompts/tutor.js';
+import { BLOOMBERG_PROMPT } from './prompts/bloomberg.js';
+
+// §6 — code is state, not history. With a persistent chat session the model's
+// transcript accumulates turns we can't strip, so: the buffer is re-sent ONLY
+// when it changed (or the session is fresh), always labeled as superseding
+// every earlier copy; everything else (cursor, selection, build, tests) is
+// small and rides along on every turn.
+
+function numberLines(text: string): string {
+  return text
+    .split('\n')
+    .map((line, i) => `${String(i + 1).padStart(4)}| ${line}`)
+    .join('\n');
+}
+
+function lastLines(text: string, n: number): string {
+  const lines = text.trimEnd().split('\n');
+  return lines.slice(-n).join('\n');
+}
+
+// Active-clock timestamp: paused time is excluded, so a break the candidate
+// took never shows up as a narration gap.
+function clockIn(session: Session, at: number): string {
+  const s = Math.round(activeMs(session, at) / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+// Session-fixed prompt for the persistent chat session: persona + formatted
+// problem + hidden brief (interviewer personas only). Changing persona or
+// problem restarts the session with a fresh prompt.
+export function buildSystemPrompt(session: Session): string {
+  const blocks: string[] = [];
+  const personaPrompt =
+    session.persona === 'interviewer'
+      ? INTERVIEWER_PROMPT
+      : session.persona === 'bloomberg'
+        ? BLOOMBERG_PROMPT
+        : TUTOR_PROMPT;
+  blocks.push(personaPrompt);
+
+  const p = session.problem;
+  if (p) {
+    const examples = p.examples
+      .map(
+        (e, i) =>
+          `Example ${i + 1}:\n  Input: ${e.input}\n  Output: ${e.output}${e.note ? `\n  Note: ${e.note}` : ''}`,
+      )
+      .join('\n');
+    blocks.push(
+      `# Problem: ${p.title}\n\n${p.statement}\n\nConstraints:\n${p.constraints.map((c) => `- ${c}`).join('\n')}\n\n${examples}`,
+    );
+    // Both interviewer personas get the hidden brief; the tutor doesn't need it.
+    if (session.persona !== 'tutor' && p.brief) {
+      blocks.push(`PRIVATE INTERVIEWER BRIEF — never reveal or read out:\n${p.brief}`);
+    }
+  }
+  return blocks.join('\n\n');
+}
+
+// Sent per-turn while the client's voice mode is on (the persistent session's
+// system prompt can't change mid-session, so this rides the user message).
+const VOICE_STYLE = `<voice-mode>
+Your reply will be read aloud by text-to-speech. Speak like a person on a phone screen: plain conversational sentences with contractions, usually 1-3 of them. No markdown structure at all — no headings, bullets, tables, or emphasis markers. No emoji. Vary your openers and skip filler like "Great" or "Sure". Say numbers, symbols and code the way you'd say them out loud: "big O of n log n", "ten to the fifth", "vector of int", "the loop around line twelve". Only include code when genuinely needed, inside a fenced code block — it is shown on screen but never read aloud, so refer to it as "the snippet on your screen". End questions cleanly so the candidate knows it's their turn.
+</voice-mode>`;
+
+function buildLiveState(
+  session: Session,
+  latestEdit: EditSummary | null,
+  includeBuffer: boolean,
+  narration: NarrationSegment[],
+): string {
+  const parts: string[] = [];
+
+  const lastPause = session.pauseSpans[session.pauseSpans.length - 1];
+  if (lastPause && lastPause.to === null) {
+    parts.push(
+      '=== SESSION PAUSED === the candidate paused the session clock. This exchange is a break or coaching moment, not part of the timed interview — do not treat it as interview performance, and do not advance the mock until they resume.',
+    );
+  }
+
+  if (includeBuffer) {
+    parts.push(
+      `=== CURRENT BUFFER (C++, line-numbered — supersedes every earlier buffer in this conversation) ===\n${numberLines(session.buffer)}`,
+    );
+  } else {
+    parts.push('=== BUFFER === unchanged since the last message');
+  }
+
+  if (session.selection && session.selection.text.trim()) {
+    const { startLine, endLine, text } = session.selection;
+    parts.push(`=== SELECTION (lines ${startLine}-${endLine}) ===\n${text}`);
+  }
+
+  parts.push(`=== CURSOR === line ${session.cursor.line}, column ${session.cursor.column}`);
+
+  if (latestEdit) {
+    parts.push(`=== SINCE LAST MESSAGE === ${latestEdit.summary}`);
+  }
+
+  if (narration.length > 0) {
+    // Ambient think-aloud, transcribed while the candidate coded. Not a
+    // message to the interviewer — shown so silence vs narration is visible.
+    parts.push(
+      `=== NARRATION (spoken aloud while coding since the last message — context, not addressed to you; do not answer it point-by-point) ===\n` +
+        narration.map((n) => `[${clockIn(session, n.at)}] ${n.text}`).join('\n'),
+    );
+  }
+
+  if (session.build.status === 'error' && session.build.stderr) {
+    let build = `=== BUILD === error\n${lastLines(session.build.stderr, 20)}`;
+    if (session.consecutiveBuildFailures >= 2) {
+      build += `\n(the last ${session.consecutiveBuildFailures} builds failed with the same error)`;
+    }
+    parts.push(build);
+  } else if (session.build.status === 'ok') {
+    parts.push('=== BUILD === ok');
+  }
+
+  if (session.tests) {
+    const t = session.tests;
+    let tests = `=== TESTS === ${t.passed}/${t.total} passed`;
+    if (t.failures.length) {
+      tests +=
+        '\n' +
+        t.failures
+          .map((f) => `case ${f.index}: input=${f.input}\n  expected: ${f.expected}\n  actual:   ${f.actual}`)
+          .join('\n');
+    }
+    parts.push(tests);
+  }
+
+  return parts.join('\n\n');
+}
+
+// Replayed as the first turn of a freshly (re)started chat session, so a
+// persona/problem switch or a crashed session doesn't lose the conversation.
+// History with code stripped — edit markers preserve narrative continuity.
+function buildHistory(session: Session): string | null {
+  const parts: string[] = [];
+  if (session.compactSummary) {
+    parts.push(`Summary of the session so far:\n${session.compactSummary}`);
+  }
+  const editsByTurn = new Map<number, string>();
+  for (const e of session.edits) editsByTurn.set(e.atTurn, e.summary);
+  const narrationByTurn = new Map<number, NarrationSegment[]>();
+  for (const n of session.narration) {
+    const group = narrationByTurn.get(n.atTurn);
+    if (group) group.push(n);
+    else narrationByTurn.set(n.atTurn, [n]);
+  }
+  const lines: string[] = [];
+  for (let i = session.compactedThrough; i < session.turns.length; i++) {
+    // Think-aloud spoken before this turn, replayed in chronological place.
+    for (const n of narrationByTurn.get(i) ?? []) {
+      lines.push(`CANDIDATE (thinking aloud at ${clockIn(session, n.at)}, not addressed to you): ${n.text}`);
+    }
+    const turn = session.turns[i];
+    let content = turn.content;
+    if (turn.role === 'user' && editsByTurn.has(i)) {
+      content = `[edit] ${editsByTurn.get(i)}\n\n${content}`;
+    }
+    lines.push(`${turn.role === 'user' ? 'CANDIDATE' : 'YOU'}: ${content}`);
+  }
+  if (lines.length) parts.push(lines.join('\n\n'));
+  if (parts.length === 0) return null;
+  return `<conversation-history>\nEarlier turns of this session, oldest first. Continue seamlessly as the assistant — do not greet again or recap.\n\n${parts.join('\n\n')}\n</conversation-history>`;
+}
+
+// One turn for the persistent chat session: optional history replay (fresh
+// sessions only) + live editor state + optional voice styling + the message.
+export function assembleTurn(
+  session: Session,
+  userMessage: string,
+  latestEdit: EditSummary | null,
+  opts: { voice: boolean; includeHistory: boolean; includeBuffer: boolean; narration: NarrationSegment[] },
+): string {
+  const parts: string[] = [];
+  if (opts.includeHistory) {
+    const history = buildHistory(session);
+    if (history) parts.push(history);
+  }
+  parts.push(buildLiveState(session, latestEdit, opts.includeBuffer, opts.narration));
+  if (opts.voice) parts.push(VOICE_STYLE);
+  parts.push(`=== USER MESSAGE ===\n${userMessage}`);
+  return parts.join('\n\n');
+}
