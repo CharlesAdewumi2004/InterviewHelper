@@ -5,3 +5,7 @@ sessions/*.json
 sessions/gradebook.db
 *.log
 .claude/settings.local.json
+
+# Interview transcripts: local training data, never public
+interview-data/*
+!interview-data/README.md
