@@ -3,6 +3,8 @@ import { activeMs } from './session.js';
 import { INTERVIEWER_PROMPT } from './prompts/interviewer.js';
 import { TUTOR_PROMPT } from './prompts/tutor.js';
 import { BLOOMBERG_PROMPT } from './prompts/bloomberg.js';
+import { SYSDESIGN_PROMPT } from './prompts/sysdesign.js';
+import { BEHAVIORAL_PROMPT } from './prompts/behavioral.js';
 
 // §6 — code is state, not history. With a persistent chat session the model's
 // transcript accumulates turns we can't strip, so: the buffer is re-sent ONLY
@@ -34,12 +36,13 @@ function clockIn(session: Session, at: number): string {
 // problem restarts the session with a fresh prompt.
 export function buildSystemPrompt(session: Session): string {
   const blocks: string[] = [];
-  const personaPrompt =
-    session.persona === 'interviewer'
-      ? INTERVIEWER_PROMPT
-      : session.persona === 'bloomberg'
-        ? BLOOMBERG_PROMPT
-        : TUTOR_PROMPT;
+  const personaPrompt = {
+    interviewer: INTERVIEWER_PROMPT,
+    sysdesign: SYSDESIGN_PROMPT,
+    behavioral: BEHAVIORAL_PROMPT,
+    bloomberg: BLOOMBERG_PROMPT,
+    tutor: TUTOR_PROMPT,
+  }[session.persona];
   blocks.push(personaPrompt);
 
   const p = session.problem;

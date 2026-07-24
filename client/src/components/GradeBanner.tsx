@@ -11,6 +11,7 @@ const MODE_LABELS = {
   coding: 'Question practice',
   full_interview: 'Full interview',
   system_design: 'System design',
+  behavioral: 'Behavioral',
 } as const;
 
 // Headline decision + measured telemetry. The weighted score and the

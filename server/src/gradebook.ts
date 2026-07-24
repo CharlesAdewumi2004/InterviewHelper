@@ -20,23 +20,28 @@ import type { Session } from './types.js';
 // v2: ambient narration channel — D's continuity anchors are scored from the
 // narration timeline; with the mic off, D comes from chat-visible evidence
 // only or is Not Observed (never inferred from transcript gaps).
-export const RUBRIC_VERSION = 2;
+// v3: data-grounded against the outcome-labeled interviewing.io corpus —
+// behavioral mode added, gates 6 (C ≤ 2) and 7 (two axes ≤ 2 → No Hire),
+// per-axis calibration notes in the doc and scorecard prompt.
+export const RUBRIC_VERSION = 3;
 
 // §3 — per-mode axis weights.
 const WEIGHTS: Record<SessionMode, Partial<Record<AxisId, number>>> = {
   coding: { A: 20, B: 30, C: 25, D: 25 },
   full_interview: { A: 15, B: 25, C: 20, D: 25, F: 15 },
   system_design: { A: 15, E: 45, D: 25, F: 15 },
+  behavioral: { D: 40, F: 60 },
 };
 
 const RANK: Recommendation[] = ['no hire', 'lean no hire', 'hire', 'strong hire'];
 
 // Mode is inferred from which axes have evidence — E means a system-design
-// discussion happened; F means behavioral/motivation was probed.
+// discussion happened; F with coding evidence means a full interview; F with
+// no coding axes at all means a dedicated behavioral round.
 export function inferMode(axes: ScorecardAxis[]): SessionMode {
   const ids = new Set(axes.map((a) => a.axis));
   if (ids.has('E')) return 'system_design';
-  if (ids.has('F')) return 'full_interview';
+  if (ids.has('F')) return ids.has('B') || ids.has('C') ? 'full_interview' : 'behavioral';
   return 'coding';
 }
 
@@ -87,6 +92,13 @@ export function computeDecision(
   // single-problem, so a lone B ≤ 2 caps at Lean No Hire instead.
   const b = score('B');
   if (b !== null && b <= 2) capAt('lean no hire', 'B ≤ 2 — capped at Lean No Hire (correctness is the baseline)');
+  // Gate 6 [data]: problem-solving ≤ 2 was the modal rejection predictor.
+  const c = score('C');
+  if (c !== null && c <= 2) capAt('lean no hire', 'C ≤ 2 — capped at Lean No Hire (problem-solving is the modal reject driver)');
+  // Gate 7 [data]: no advanced candidate had two dimensions below 3.
+  if (axes.filter((a) => a.score <= 2).length >= 2) {
+    capAt('no hire', 'Two or more axes ≤ 2 — No Hire (one crater is survivable, two never was)');
+  }
   if (redFlags.length > 0) {
     capAt('lean no hire', `${redFlags.length} red flag${redFlags.length > 1 ? 's' : ''} — capped at Lean No Hire`);
   }

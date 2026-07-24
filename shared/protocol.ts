@@ -1,6 +1,8 @@
 // WebSocket protocol shared between client and server.
 
-export type Persona = 'interviewer' | 'tutor' | 'bloomberg';
+// interviewer = technical coding round; sysdesign and behavioral are
+// dedicated round types (each grades into its own §3 mode via axes E/F).
+export type Persona = 'interviewer' | 'sysdesign' | 'behavioral' | 'tutor' | 'bloomberg';
 
 export interface Selection {
   startLine: number;
@@ -105,7 +107,7 @@ export interface Scorecard {
   decision_observation: string;
 }
 
-export type SessionMode = 'coding' | 'full_interview' | 'system_design';
+export type SessionMode = 'coding' | 'full_interview' | 'system_design' | 'behavioral';
 export type Recommendation = 'strong hire' | 'hire' | 'lean no hire' | 'no hire';
 
 // Server-computed decision + measured telemetry (§5 + §7 inputs).

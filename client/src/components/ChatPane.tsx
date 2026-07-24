@@ -35,6 +35,8 @@ function renderContent(content: string) {
 
 function personaLabel(p: Persona): string {
   if (p === 'interviewer') return 'Interviewer';
+  if (p === 'sysdesign') return 'Sys Design';
+  if (p === 'behavioral') return 'Behavioral';
   if (p === 'bloomberg') return 'Bloomberg';
   return 'Tutor';
 }

@@ -68,6 +68,15 @@ Axis F — Motivation & fit (only if behavioral/motivation discussion actually h
 4: All of 3, plus survives deep probing on own past decisions with visible genuine domain engagement.
 Auto-caps: salary/prestige-shaped motivation → F ≤ 2. Answer that fits any tech company unchanged → F ≤ 2. Hiding behind "we" after the "what did YOU do?" probe → F ≤ 2.
 
+DATA-GROUNDED CALIBRATION (from real interviewers' written feedback and advance/reject decisions on 89 outcome-labeled mock interviews — apply when matching anchors):
+- Working code at time's end is B's hard bar: "ten more minutes and you'd have it" was still a reject. Tolerated within an advance (do NOT over-penalize): syntax slips, naming nits, a missed edge case the interviewer caught, slow starts, nerves.
+- Hint DEPENDENCE rejects (2+ hints to reach the core insight, or needing the hint's why explained); a hint converted into visible progress within minutes does not — many advancing candidates needed one algorithm-level hint.
+- Narration is the top-cited advance reason. The 3-vs-4 divider on D is UNPROMPTED: stating complexity, generating tests, and driving phase transitions on their own initiative reads 4; doing the same only when prompted reads 3.
+- Volume of clarifying questions is table stakes — never inflate A for asking many; failure to clarify the load-bearing constraint (e.g. scale in system design) is what counts against A.
+- Communication cannot rescue problem-solving: candidates with perfect communication scores are rejected regularly. Score the axes independently.
+- System design (E) fails on process, not vocabulary: no capacity numbers, options listed without committing, a parts list with no connected request flow, or breaking down one probe deep into their own design. It passes on pinned scale numbers, committed trade-offs stated aloud, and driving the design without intervention.
+- Behavioral (F) is decided in the follow-up layer: scope that shrinks under probing, missing quantified impact, and answering the vibe instead of the literal question are the reject anchors; natural STAR, quantified outcomes, and plainly-owned failures are the advance anchors.
+
 HINT LOG: every hint given during the session, its level (1 = nudge … 4 = the answer's shape), and how quickly/completely the candidate integrated it. Empty array if none.
 
 CLARIFICATION CHECKLIST: for each of the 8 items, true only if the candidate raised it UNPROMPTED: input size, empty/null, duplicates, boundaries, mutation allowed, complexity target, ordering, invalid input. Set clarifications to null if no coding problem was attempted.

@@ -2,6 +2,12 @@
 
 Companion to the Mock Interview Process Spec. This defines exactly how every session is scored, how scores map to a hire decision, and how progress is tracked across sessions.
 
+> **v3 — data-grounded.** Anchors, gates and calibration notes marked *[data]* are derived
+> from a corpus of real interviewing.io mock interviews (16 coding, 10 system design,
+> 7 behavioral transcripts read in full, plus the written interviewer feedback and
+> advance/reject decisions for 89 outcome-labeled sessions). Analyses live in
+> `interview-data/work/distilled/rubric-{rejects,passes}.md`.
+
 ---
 
 ## 1. Principles
@@ -58,6 +64,13 @@ Weights reflect Bloomberg's documented emphasis: coding competence is the baseli
 |---|---|
 | A | 15% · E — System design | 45% · D | 25% · F | 15% |
 
+### Behavioral rounds (dedicated STAR sessions — no coding/design axes)
+
+| Axis | Weight |
+|---|---|
+| D — Communication & delivery | 40% |
+| F — Motivation, fit & story substance | 60% |
+
 ### Behavioral anchors
 
 **Axis A — Problem comprehension & requirements**
@@ -102,6 +115,19 @@ Weights reflect Bloomberg's documented emphasis: coding competence is the baseli
 - **4:** All of 3, plus survives deep probing on own past decisions (why, what failed, what they'd change) with visible genuine domain engagement.
 - *Auto-caps:* "salary/prestige"-shaped motivation → F ≤ 2. Answer that would fit any tech company unchanged → F ≤ 2. Hiding behind "we" after the "what did *you* do?" probe → F ≤ 2.
 
+### Data-grounded calibration (v3) *[data]*
+
+How real interviewers actually weighed these axes, from the outcome-labeled corpus:
+
+- **B — working code is the hard gate.** "Could not get working code at the end" is the most-cited verbatim rejection reason; "ten more minutes and you'd have it" was still a no. Proximity doesn't count. Tolerated within an advance: syntax slips ("I don't care"), naming nits, minor complexity slips, an edge case the interviewer caught, slow starts.
+- **C — problem-solving ≤2 is the modal rejection predictor** (~two-thirds of rejects). Needing 2+ hints to reach the core insight, or patching brute force instead of rethinking, are its anchor behaviors.
+- **D — narration is the single most-cited advance reason** ("kept me convinced you were thinking in the right direction" — through bugs and hints). The 3-vs-4 divider is *unprompted*: strong candidates state complexity, generate tests, and drive phase transitions on their own initiative; merely-passing ones do the same when prompted.
+- **Hints are not disqualifying by themselves.** Many advances needed algorithm-level hints; what matters is converting a hint into visible progress within minutes. Hint *dependence* (2+ hints to the core idea, or needing the why explained) is what rejects.
+- **A — clarifying questions are table stakes, not signal.** The questions axis scored 4/4 in almost every reject; do not inflate A for volume of questions. But *failure* to clarify is decision-relevant: never asking about scale was a headline system-design rejection.
+- **Communication cannot rescue problem-solving.** Rejects with 4/4 communication are common; one interviewer gave "10/10 communication" and voted no. Likability is scored independently (would-work-with was yes in 46/47 rejects).
+- **E — process over knowledge.** System-design rejects had good component vocabulary but: no capacity numbers (leading to undersized designs), 20 minutes spent on requirements, options listed without committing, or a parts list with no connected request flow. Advances pinned scale numbers, committed to choices with trade-offs stated aloud, and drove the design without intervention.
+- **F — the probe layer decides.** Stories fail on scope inflation discovered under probing, missing quantified impact, and answering the vibe instead of the literal question; they pass on natural STAR, "golden nuggets" (money, timelines, team sizes), and plainly-owned failures.
+
 ---
 
 ## 4. Flags (Outside the Weighted Score)
@@ -140,6 +166,8 @@ Compute the weighted average, then apply gates:
 3. B ≤ 2 on both problems in a session → No Hire (correctness is the baseline).
 4. Any red flag → at best Lean No Hire.
 5. In the 2.5–2.99 band, D and F act as tiebreakers: both ≥ 3 → round up to Hire; either ≤ 2 → round down to No Hire.
+6. C ≤ 2 → cannot exceed Lean No Hire *[data: problem-solving ≤2 was the modal rejection predictor; no reject scored ≥3 on both technical axes]*.
+7. Two or more scored axes ≤ 2 → No Hire *[data: no advanced candidate in the corpus had two dimensions below 3 — a single crater was survivable, two never was]*.
 
 Every recommendation is stated with a confidence (low / medium / high) and the **single most decision-relevant observation**.
 

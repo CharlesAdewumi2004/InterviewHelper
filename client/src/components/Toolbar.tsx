@@ -199,7 +199,9 @@ export default memo(function Toolbar(props: Props) {
       <Segmented
         value={props.persona}
         options={[
-          { value: 'interviewer', label: 'Interviewer' },
+          { value: 'interviewer', label: 'Technical' },
+          { value: 'sysdesign', label: 'Sys Design' },
+          { value: 'behavioral', label: 'Behavioral' },
           { value: 'bloomberg', label: 'Bloomberg' },
           { value: 'tutor', label: 'Tutor' },
         ]}

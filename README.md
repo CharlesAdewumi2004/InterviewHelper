@@ -7,8 +7,10 @@ current code. Built for interview practice — you never paste code into a chat 
   True LeetCode build semantics: every standard header is pre-included and `using namespace std`
   is in effect (force-included prelude, so compiler errors still point at your real line numbers) —
   solutions need zero boilerplate.
-- **Three AI personas**: a generic interviewer who won't hand you answers, a tutor who will,
-  and a **Bloomberg mock interviewer** running the full grad-SWE mock process spec.
+- **Five AI personas**: technical coding, **system design** and **behavioral** interviewers —
+  each distilled from real interviewing.io mock-interview transcripts (register, hint ladders,
+  probe patterns, verbatim style exemplars) — plus a tutor who gives direct answers and a
+  **Bloomberg mock interviewer** running the full grad-SWE mock process spec.
 - **Problem intake**: paste rough problem text; it becomes a formatted statement, a starting
   stub, test cases and a generated test harness.
 - **Compile and run** against the tests locally with ASan/UBSan on, results flowing straight

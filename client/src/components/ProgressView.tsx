@@ -10,7 +10,12 @@ const SURFACE = '#171717';
 const DELTA_UP = '#0ca30c';
 const DELTA_DOWN = '#d03b3b';
 
-const MODE_LABELS = { coding: 'Practice', full_interview: 'Full interview', system_design: 'System design' } as const;
+const MODE_LABELS = {
+  coding: 'Practice',
+  full_interview: 'Full interview',
+  system_design: 'System design',
+  behavioral: 'Behavioral',
+} as const;
 
 interface Props {
   onClose: () => void;
